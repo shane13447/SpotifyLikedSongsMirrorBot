@@ -21,7 +21,7 @@ function buildAuthUrl(params: {
     client_id: params.clientId,
     response_type: "code",
     redirect_uri: params.redirectUri,
-    scope: "user-library-read playlist-modify-public user-read-private",
+    scope: "user-library-read playlist-modify-public playlist-modify-private user-read-private",
     state: params.state
   });
 
@@ -32,7 +32,8 @@ function openBrowser(url: string): void {
   const platform = process.platform;
 
   if (platform === "win32") {
-    spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+    // Use rundll32 to avoid cmd parsing issues with '&' query parameters.
+    spawn("rundll32", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore" }).unref();
     return;
   }
 
