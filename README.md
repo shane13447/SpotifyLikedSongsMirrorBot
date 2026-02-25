@@ -50,6 +50,7 @@ All implementation is contained in this repository/folder (`SpotifyLikedSongsMir
    Required OAuth scopes used by the helper:
    - `user-library-read`
    - `playlist-modify-public`
+   - `playlist-modify-private`
    - `user-read-private`
 
 4. Add GitHub repository secrets:
