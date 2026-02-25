@@ -1,0 +1,25 @@
+{
+  "name": "spotify-liked-songs-mirror-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sync Spotify liked songs to a public mirror playlist.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "sync": "tsx src/index.ts",
+    "auth": "tsx scripts/generate-refresh-token.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
