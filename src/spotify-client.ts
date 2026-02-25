@@ -58,6 +58,7 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PUT";
   body?: unknown;
   accessToken?: string;
+  allow403?: boolean;
 }
 
 export class SpotifyClient {
@@ -121,7 +122,7 @@ export class SpotifyClient {
   }
 
   async createPublicPlaylist(
-    userId: string,
+    _userId: string,
     name: string,
     accessToken: string
   ): Promise<{ id: string; externalUrl: string | null }> {
@@ -132,7 +133,7 @@ export class SpotifyClient {
     };
 
     const response = await this.request<{ id: string; external_urls?: { spotify?: string } }>(
-      `${SPOTIFY_API_BASE}/users/${userId}/playlists`,
+      `${SPOTIFY_API_BASE}/me/playlists`,
       {
         method: "POST",
         body: payload,
@@ -173,15 +174,16 @@ export class SpotifyClient {
   }
 
   async replacePlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
-    await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+    await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
       method: "PUT",
       body: { uris },
-      accessToken
+      accessToken,
+      allow403: uris.length === 0
     });
   }
 
   async addPlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
-    await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`, {
+    await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
       method: "POST",
       body: { uris },
       accessToken
@@ -227,6 +229,10 @@ export class SpotifyClient {
         const backoffMs = retryAfterMs ?? 500 * 2 ** (attempt - 1);
         await sleep(backoffMs);
         continue;
+      }
+
+      if (response.status === 403 && options.allow403) {
+        return undefined as T;
       }
 
       throw new SpotifyApiError(response.status, buildErrorMessage(response.status, bodyText));
