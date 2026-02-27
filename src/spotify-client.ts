@@ -140,6 +140,8 @@ export class SpotifyClient {
   }
 
   async getPlaylist(playlistId: string, accessToken: string): Promise<{ id: string } | null> {
+    logger.info(`Checking playlist existence for playlistId=${playlistId}.`);
+
     try {
       return await this.request<{ id: string }>(`${SPOTIFY_API_BASE}/playlists/${playlistId}?fields=id`, {
         method: "GET",
@@ -255,6 +257,8 @@ export class SpotifyClient {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      logger.info(`Spotify request attempt ${attempt + 1}: ${options.method || "GET"} ${url}`);
 
       let response: Response;
       try {
