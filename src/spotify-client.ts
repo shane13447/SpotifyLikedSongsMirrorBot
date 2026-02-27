@@ -1,8 +1,10 @@
+import { logger } from "./logger";
 import type { PagingResponse, SavedTrackItem, SpotifyUser } from "./types";
 
 const SPOTIFY_API_BASE = "https://api.spotify.com/v1";
 const SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com/api";
 const MAX_RETRIES = 4;
+const REQUEST_TIMEOUT_MS = 30000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,7 +60,6 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PUT";
   body?: unknown;
   accessToken?: string;
-  allow403?: boolean;
 }
 
 export class SpotifyClient {
@@ -69,32 +70,66 @@ export class SpotifyClient {
   ) {}
 
   async refreshAccessToken(): Promise<string> {
-    const params = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: this.refreshToken,
-      client_id: this.clientId,
-      client_secret: this.clientSecret
-    });
+    let attempt = 0;
 
-    const response = await fetch(`${SPOTIFY_ACCOUNTS_BASE}/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: params
-    });
+    while (true) {
+      const params = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: this.refreshToken,
+        client_id: this.clientId,
+        client_secret: this.clientSecret
+      });
 
-    const bodyText = await response.text();
-    if (!response.ok) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      let response: Response;
+      try {
+        response = await fetch(`${SPOTIFY_ACCOUNTS_BASE}/token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: params,
+          signal: controller.signal
+        });
+      } catch (error) {
+        const isAbortError = error instanceof Error && error.name === "AbortError";
+        if (isAbortError && attempt < MAX_RETRIES) {
+          attempt += 1;
+          const backoffMs = 500 * 2 ** (attempt - 1);
+          logger.warn(`Spotify token request timed out after ${REQUEST_TIMEOUT_MS}ms. Retrying attempt ${attempt}.`);
+          await sleep(backoffMs);
+          continue;
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      const bodyText = await response.text();
+
+      if (response.ok) {
+        const parsed = JSON.parse(bodyText) as { access_token?: string };
+        if (!parsed.access_token) {
+          throw new Error("Spotify token response did not include access_token");
+        }
+
+        return parsed.access_token;
+      }
+
+      const shouldRetry = response.status === 429 || response.status >= 500;
+      if (shouldRetry && attempt < MAX_RETRIES) {
+        attempt += 1;
+        const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+        const backoffMs = retryAfterMs ?? 500 * 2 ** (attempt - 1);
+        await sleep(backoffMs);
+        continue;
+      }
+
       throw new SpotifyApiError(response.status, buildErrorMessage(response.status, bodyText));
     }
-
-    const parsed = JSON.parse(bodyText) as { access_token?: string };
-    if (!parsed.access_token) {
-      throw new Error("Spotify token response did not include access_token");
-    }
-
-    return parsed.access_token;
   }
 
   async getCurrentUser(accessToken: string): Promise<SpotifyUser> {
@@ -106,12 +141,10 @@ export class SpotifyClient {
 
   async getPlaylist(playlistId: string, accessToken: string): Promise<{ id: string } | null> {
     try {
-      const result = await this.request<{ id: string }>(`${SPOTIFY_API_BASE}/playlists/${playlistId}?fields=id`, {
+      return await this.request<{ id: string }>(`${SPOTIFY_API_BASE}/playlists/${playlistId}?fields=id`, {
         method: "GET",
         accessToken
       });
-
-      return result;
     } catch (error) {
       if (error instanceof SpotifyApiError && error.status === 404) {
         return null;
@@ -122,7 +155,6 @@ export class SpotifyClient {
   }
 
   async createPublicPlaylist(
-    _userId: string,
     name: string,
     accessToken: string
   ): Promise<{ id: string; externalUrl: string | null }> {
@@ -151,8 +183,9 @@ export class SpotifyClient {
     const results: SavedTrackItem[] = [];
     let offset = 0;
     const limit = 50;
+    let total = Number.POSITIVE_INFINITY;
 
-    while (true) {
+    while (results.length < total) {
       const page = await this.request<PagingResponse<SavedTrackItem>>(
         `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=${offset}`,
         {
@@ -161,25 +194,39 @@ export class SpotifyClient {
         }
       );
 
-      results.push(...page.items);
+      total = page.total;
+      logger.info(
+        `Fetched liked tracks page offset=${page.offset} items=${page.items.length} collected=${results.length}/${total}`
+      );
 
-      if (!page.next || page.items.length === 0) {
+      if (page.items.length === 0) {
         break;
       }
 
-      offset += page.limit;
+      results.push(...page.items);
+      offset += page.items.length;
     }
+
+    logger.info(`Completed liked tracks fetch. collected=${results.length} total=${total}`);
 
     return results;
   }
 
   async replacePlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
-    await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
-      method: "PUT",
-      body: { uris },
-      accessToken,
-      allow403: uris.length === 0
-    });
+    try {
+      await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
+        method: "PUT",
+        body: { uris },
+        accessToken
+      });
+    } catch (error) {
+      // Spotify may return 403 when clearing an already-empty playlist. Ignore it.
+      if (uris.length === 0 && error instanceof SpotifyApiError && error.status === 403) {
+        return;
+      }
+
+      throw error;
+    }
   }
 
   async addPlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
@@ -206,11 +253,31 @@ export class SpotifyClient {
         headers["Content-Type"] = "application/json";
       }
 
-      const response = await fetch(url, {
-        method: options.method || "GET",
-        headers,
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: options.method || "GET",
+          headers,
+          body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal
+        });
+      } catch (error) {
+        const isAbortError = error instanceof Error && error.name === "AbortError";
+        if (isAbortError && attempt < MAX_RETRIES) {
+          attempt += 1;
+          const backoffMs = 500 * 2 ** (attempt - 1);
+          logger.warn(`Spotify API request timed out after ${REQUEST_TIMEOUT_MS}ms. Retrying attempt ${attempt}.`);
+          await sleep(backoffMs);
+          continue;
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       const bodyText = await response.text();
 
@@ -229,10 +296,6 @@ export class SpotifyClient {
         const backoffMs = retryAfterMs ?? 500 * 2 ** (attempt - 1);
         await sleep(backoffMs);
         continue;
-      }
-
-      if (response.status === 403 && options.allow403) {
-        return undefined as T;
       }
 
       throw new SpotifyApiError(response.status, buildErrorMessage(response.status, bodyText));

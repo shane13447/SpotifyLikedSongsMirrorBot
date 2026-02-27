@@ -1,7 +1,7 @@
 import type { AppConfig } from "./config";
 import { logger } from "./logger";
 import { SpotifyApiError, SpotifyClient } from "./spotify-client";
-import type { AppState, SavedTrackItem, SyncSummary } from "./types";
+import type { AppState, SavedTrackItem, SpotifyTrack, SyncSummary } from "./types";
 
 const SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE = 100;
 
@@ -14,6 +14,10 @@ export function buildInitialPlaylistName(displayName: string | null, fallbackNam
   return `${trimmed}'s Liked Songs`;
 }
 
+function isSkippableTrack(track: SpotifyTrack | null): boolean {
+  return !track || !track.uri || track.is_local === true || track.is_playable === false;
+}
+
 export function selectCandidateUris(likedTracks: SavedTrackItem[]): {
   uris: string[];
   likedCount: number;
@@ -24,29 +28,19 @@ export function selectCandidateUris(likedTracks: SavedTrackItem[]): {
   let skippedCount = 0;
 
   for (const item of likedTracks) {
-    const track = item.track;
-
-    if (!track || !track.uri) {
+    if (isSkippableTrack(item.track)) {
       skippedCount += 1;
       continue;
     }
 
-    if (track.is_local) {
-      skippedCount += 1;
+    const uri = item.track!.uri;
+
+    if (seenUris.has(uri)) {
       continue;
     }
 
-    if (track.is_playable === false) {
-      skippedCount += 1;
-      continue;
-    }
-
-    if (seenUris.has(track.uri)) {
-      continue;
-    }
-
-    seenUris.add(track.uri);
-    uris.push(track.uri);
+    seenUris.add(uri);
+    uris.push(uri);
   }
 
   return {
@@ -94,8 +88,15 @@ async function appendWithFallback(
 ): Promise<{ mirroredCount: number; writeSkippedCount: number }> {
   let mirroredCount = 0;
   let writeSkippedCount = 0;
+  const chunks = chunk(uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE);
 
-  for (const uriChunk of chunk(uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE)) {
+  logger.info(`Writing playlist in ${chunks.length} chunks of up to ${SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE}.`);
+
+  for (const [chunkIndex, uriChunk] of chunks.entries()) {
+    logger.info(
+      `Writing chunk ${chunkIndex + 1}/${chunks.length} size=${uriChunk.length} mirroredSoFar=${mirroredCount}`
+    );
+
     try {
       await spotifyClient.addPlaylistItems(playlistId, uriChunk, accessToken);
       mirroredCount += uriChunk.length;
@@ -149,7 +150,7 @@ export async function syncLikedSongsMirror(
 
   if (!playlistId) {
     const playlistName = buildInitialPlaylistName(currentUser.display_name, config.fallbackPlaylistName);
-    const created = await spotifyClient.createPublicPlaylist(currentUser.id, playlistName, accessToken);
+    const created = await spotifyClient.createPublicPlaylist(playlistName, accessToken);
     playlistId = created.id;
     createdPlaylist = true;
 
