@@ -148,7 +148,7 @@ export class SpotifyClient {
         accessToken
       });
     } catch (error) {
-      if (error instanceof SpotifyApiError && error.status === 404) {
+      if (error instanceof SpotifyApiError && (error.status === 403 || error.status === 404)) {
         return null;
       }
 

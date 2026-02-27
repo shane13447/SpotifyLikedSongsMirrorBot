@@ -150,7 +150,7 @@ export async function syncLikedSongsMirror(
     logger.info(`Stage: checking existing playlist (playlistId=${playlistId}).`);
     const existing = await spotifyClient.getPlaylist(playlistId, accessToken);
     if (!existing) {
-      logger.warn(`Stored playlist ID ${playlistId} was not found. Creating a new mirror playlist.`);
+      logger.warn(`Stored playlist ID ${playlistId} was not found or inaccessible. Creating a new mirror playlist.`);
       playlistId = null;
     } else {
       logger.info(`Stage: existing playlist confirmed (playlistId=${playlistId}).`);
