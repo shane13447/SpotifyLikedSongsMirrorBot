@@ -163,14 +163,11 @@ export async function syncLikedSongsMirror(
   const likedTracks = await spotifyClient.fetchAllLikedTracks(accessToken);
   const candidate = selectCandidateUris(likedTracks);
 
+  await spotifyClient.replacePlaylistItems(playlistId, [], accessToken);
+
   const uriChunks = chunk(candidate.uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE);
-  for (let i = 0; i < uriChunks.length; i++) {
-    const isLastChunk = i === uriChunks.length - 1;
-    if (isLastChunk) {
-      await spotifyClient.replacePlaylistItems(playlistId, uriChunks[i], accessToken);
-    } else {
-      await spotifyClient.addPlaylistItems(playlistId, uriChunks[i], accessToken);
-    }
+  for (const uriChunk of uriChunks) {
+    await spotifyClient.addPlaylistItems(playlistId, uriChunk, accessToken);
   }
   const writeResult = { mirroredCount: candidate.uris.length, writeSkippedCount: 0 };
 
