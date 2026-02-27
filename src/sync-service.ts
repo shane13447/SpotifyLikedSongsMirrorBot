@@ -134,9 +134,15 @@ export async function syncLikedSongsMirror(
   config: AppConfig,
   state: AppState
 ): Promise<{ summary: SyncSummary; nextState: AppState }> {
+  logger.info("Stage: refreshing access token.");
   const accessToken = await spotifyClient.refreshAccessToken();
-  const currentUser = await spotifyClient.getCurrentUser(accessToken);
+  logger.info("Stage: access token acquired.");
 
+  logger.info("Stage: fetching current user.");
+  const currentUser = await spotifyClient.getCurrentUser(accessToken);
+  logger.info(`Stage: current user fetched (userId=${currentUser.id}).`);
+
+  logger.info("Stage: resolving mirror playlist.");
   let playlistId = state.playlistId;
   let createdPlaylist = false;
 
@@ -150,6 +156,7 @@ export async function syncLikedSongsMirror(
 
   if (!playlistId) {
     const playlistName = buildInitialPlaylistName(currentUser.display_name, config.fallbackPlaylistName);
+    logger.info(`Stage: creating mirror playlist (${playlistName}).`);
     const created = await spotifyClient.createPublicPlaylist(playlistName, accessToken);
     playlistId = created.id;
     createdPlaylist = true;
@@ -160,13 +167,23 @@ export async function syncLikedSongsMirror(
     }
   }
 
+  logger.info("Stage: fetching liked tracks.");
   const likedTracks = await spotifyClient.fetchAllLikedTracks(accessToken);
-  const candidate = selectCandidateUris(likedTracks);
 
+  logger.info("Stage: selecting candidate URIs.");
+  const candidate = selectCandidateUris(likedTracks);
+  logger.info(
+    `Stage: selected candidates likedCount=${candidate.likedCount} candidateCount=${candidate.uris.length} skippedCount=${candidate.skippedCount}`
+  );
+
+  logger.info("Stage: clearing mirror playlist.");
   await spotifyClient.replacePlaylistItems(playlistId, [], accessToken);
 
+  logger.info("Stage: appending tracks to mirror playlist.");
   const uriChunks = chunk(candidate.uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE);
-  for (const uriChunk of uriChunks) {
+  logger.info(`Stage: writing ${uriChunks.length} chunks.`);
+  for (const [chunkIndex, uriChunk] of uriChunks.entries()) {
+    logger.info(`Stage: writing chunk ${chunkIndex + 1}/${uriChunks.length} size=${uriChunk.length}.`);
     await spotifyClient.addPlaylistItems(playlistId, uriChunk, accessToken);
   }
   const writeResult = { mirroredCount: candidate.uris.length, writeSkippedCount: 0 };
