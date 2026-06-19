@@ -3,6 +3,13 @@ import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 
+/**
+ * Reads a required environment variable, trimming surrounding whitespace.
+ *
+ * @param {string} name - Name of the environment variable to read.
+ * @returns {string} The trimmed, non-empty value of the environment variable.
+ * @throws {Error} If the variable is unset or empty after trimming.
+ */
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -12,6 +19,14 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/**
+ * Builds the Spotify authorization URL with the required OAuth scopes and the
+ * supplied CSRF state value.
+ *
+ * @param {{ clientId: string; redirectUri: string; state: string }} params
+ *   The client ID, redirect URI, and opaque state value.
+ * @returns {string} The fully-qualified Spotify authorization URL.
+ */
 function buildAuthUrl(params: {
   clientId: string;
   redirectUri: string;
@@ -28,6 +43,13 @@ function buildAuthUrl(params: {
   return `https://accounts.spotify.com/authorize?${query.toString()}`;
 }
 
+/**
+ * Opens the given URL in the system default browser, using the appropriate
+ * launcher for the current platform.
+ *
+ * @param {string} url - The URL to open.
+ * @returns {void}
+ */
 function openBrowser(url: string): void {
   const platform = process.platform;
 
@@ -45,6 +67,12 @@ function openBrowser(url: string): void {
   spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
 }
 
+/**
+ * Prints user-facing instructions and the authorization URL to the console.
+ *
+ * @param {string} authUrl - The Spotify authorization URL to display.
+ * @returns {void}
+ */
 function printSetupInstructions(authUrl: string): void {
   console.log("Opening Spotify authorization URL in your browser...");
   console.log("If it does not open automatically, use this URL:\n");
@@ -52,6 +80,14 @@ function printSetupInstructions(authUrl: string): void {
   console.log("\nAfter success, this script captures the callback and prints your refresh token.");
 }
 
+/**
+ * Exchanges an OAuth authorization code for Spotify tokens via the token endpoint.
+ *
+ * @param {{ code: string; clientId: string; clientSecret: string; redirectUri: string }} input
+ *   The authorization code and the credentials/redirect URI used to obtain it.
+ * @returns {Promise<{ refresh_token?: string }>} The parsed token response, which may include a refresh token.
+ * @throws {Error} If the token endpoint returns a non-OK response.
+ */
 async function exchangeCodeForToken(input: {
   code: string;
   clientId: string;
@@ -82,6 +118,15 @@ async function exchangeCodeForToken(input: {
   return JSON.parse(text) as { refresh_token?: string };
 }
 
+/**
+ * Drives the interactive OAuth flow: builds and opens the authorization URL,
+ * runs a temporary local callback server to capture the authorization code,
+ * verifies the CSRF state, exchanges the code, and prints the refresh token.
+ *
+ * @returns {Promise<void>} Resolves once the refresh token has been printed.
+ * @throws {Error} If required env vars are missing, the port is invalid, the
+ *   OAuth callback fails or is malformed, the state mismatches, or no refresh token is returned.
+ */
 async function main(): Promise<void> {
   const clientId = requireEnv("SPOTIFY_CLIENT_ID");
   const clientSecret = requireEnv("SPOTIFY_CLIENT_SECRET");

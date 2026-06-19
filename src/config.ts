@@ -9,6 +9,13 @@ export interface AppConfig {
   stateFilePath: string;
 }
 
+/**
+ * Reads a required environment variable, trimming surrounding whitespace.
+ *
+ * @param {string} name - Name of the environment variable to read.
+ * @returns {string} The trimmed, non-empty value of the environment variable.
+ * @throws {Error} If the variable is unset or empty after trimming.
+ */
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -18,6 +25,13 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/**
+ * Builds the application configuration from environment variables, applying
+ * defaults for optional settings.
+ *
+ * @returns {AppConfig} The resolved application configuration.
+ * @throws {Error} If any required Spotify credential variable is missing.
+ */
 export function loadConfig(): AppConfig {
   return {
     spotifyClientId: requireEnv("SPOTIFY_CLIENT_ID"),

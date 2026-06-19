@@ -5,6 +5,14 @@ import type { AppState, SavedTrackItem, SpotifyTrack, SyncSummary } from "./type
 
 const SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE = 100;
 
+/**
+ * Derives the mirror playlist name from the user's display name, falling back
+ * to a provided default when no display name is available.
+ *
+ * @param {string | null} displayName - The user's Spotify display name, if any.
+ * @param {string} fallbackName - The name to use when no display name is present.
+ * @returns {string} The playlist name to use for a newly created mirror playlist.
+ */
 export function buildInitialPlaylistName(displayName: string | null, fallbackName: string): string {
   const trimmed = displayName?.trim();
   if (!trimmed) {
@@ -14,10 +22,25 @@ export function buildInitialPlaylistName(displayName: string | null, fallbackNam
   return `${trimmed}'s Liked Songs`;
 }
 
+/**
+ * Determines whether a saved track should be excluded from the mirror, i.e.
+ * when it is missing, lacks a URI, is a local file, or is not playable.
+ *
+ * @param {SpotifyTrack | null} track - The track to evaluate, or null.
+ * @returns {boolean} True if the track should be skipped, false otherwise.
+ */
 function isSkippableTrack(track: SpotifyTrack | null): boolean {
   return !track || !track.uri || track.is_local === true || track.is_playable === false;
 }
 
+/**
+ * Selects the deduplicated, ordered list of track URIs to mirror from the
+ * user's liked tracks, skipping unplayable/local/missing tracks.
+ *
+ * @param {SavedTrackItem[]} likedTracks - The user's saved track items.
+ * @returns {{ uris: string[]; likedCount: number; skippedCount: number }}
+ *   The selected URIs, the total number of liked tracks, and the count of skipped tracks.
+ */
 export function selectCandidateUris(likedTracks: SavedTrackItem[]): {
   uris: string[];
   likedCount: number;
@@ -50,6 +73,14 @@ export function selectCandidateUris(likedTracks: SavedTrackItem[]): {
   };
 }
 
+/**
+ * Splits an array into consecutive sub-arrays of at most the given size.
+ *
+ * @template T The element type of the array.
+ * @param {T[]} items - The array to split.
+ * @param {number} size - The maximum size of each chunk.
+ * @returns {T[][]} An array of chunks preserving the original order.
+ */
 function chunk<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
 
@@ -129,6 +160,18 @@ async function appendWithFallback(
   return { mirroredCount, writeSkippedCount };
 }
 
+/**
+ * Runs the full mirror sync: refreshes the access token, resolves (or creates)
+ * the mirror playlist, fetches the user's liked tracks, selects the tracks to
+ * mirror, then clears and repopulates the playlist in batches.
+ *
+ * @param {SpotifyClient} spotifyClient - The client used to call the Spotify API.
+ * @param {AppConfig} config - The application configuration.
+ * @param {AppState} state - The persisted state, including any known playlist ID.
+ * @returns {Promise<{ summary: SyncSummary; nextState: AppState }>}
+ *   A summary of the sync and the next state to persist.
+ * @throws {SpotifyApiError} If a non-recoverable Spotify API error occurs.
+ */
 export async function syncLikedSongsMirror(
   spotifyClient: SpotifyClient,
   config: AppConfig,
