@@ -4,6 +4,13 @@ import { SpotifyClient } from "./spotify-client";
 import { readState, writeState } from "./state-store";
 import { syncLikedSongsMirror } from "./sync-service";
 
+/**
+ * Entry point for the sync run: loads configuration and persisted state,
+ * constructs the Spotify client, performs the liked-songs mirror sync,
+ * persists any new playlist ID, and logs a summary of the run.
+ *
+ * @returns {Promise<void>} Resolves once the sync has completed and results are logged.
+ */
 async function main(): Promise<void> {
   const config = loadConfig();
   const state = await readState(config.stateFilePath);

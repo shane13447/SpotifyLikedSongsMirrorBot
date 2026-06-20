@@ -6,10 +6,22 @@ const SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com/api";
 const MAX_RETRIES = 4;
 const REQUEST_TIMEOUT_MS = 30000;
 
+/**
+ * Returns a promise that resolves after the given delay.
+ *
+ * @param {number} ms - Number of milliseconds to wait.
+ * @returns {Promise<void>} Resolves once the delay has elapsed.
+ */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Parses a `Retry-After` header value (in seconds) into milliseconds.
+ *
+ * @param {string | null} headerValue - The raw header value, or null if absent.
+ * @returns {number | null} The delay in milliseconds, or null if the value is missing or invalid.
+ */
 function parseRetryAfterMs(headerValue: string | null): number | null {
   if (!headerValue) {
     return null;
@@ -23,6 +35,14 @@ function parseRetryAfterMs(headerValue: string | null): number | null {
   return seconds * 1000;
 }
 
+/**
+ * Builds a human-readable error message for a failed Spotify API response,
+ * extracting the API's error message from the JSON body when available.
+ *
+ * @param {number} status - The HTTP status code of the failed response.
+ * @param {string} bodyText - The raw response body text.
+ * @returns {string} A descriptive error message including the status and any parsed detail.
+ */
 function buildErrorMessage(status: number, bodyText: string): string {
   if (!bodyText) {
     return `Spotify API request failed with status ${status}`;
@@ -46,9 +66,17 @@ function buildErrorMessage(status: number, bodyText: string): string {
   return `Spotify API request failed with status ${status}: ${bodyText}`;
 }
 
+/**
+ * Error thrown when the Spotify API responds with a non-OK HTTP status,
+ * carrying the status code for callers to inspect.
+ */
 export class SpotifyApiError extends Error {
   readonly status: number;
 
+  /**
+   * @param {number} status - The HTTP status code returned by the Spotify API.
+   * @param {string} message - A descriptive error message.
+   */
   constructor(status: number, message: string) {
     super(message);
     this.name = "SpotifyApiError";
@@ -62,13 +90,31 @@ interface RequestOptions {
   accessToken?: string;
 }
 
+/**
+ * Thin client for the Spotify Web API covering the operations needed to mirror
+ * liked songs: token refresh, user lookup, and playlist read/write. Requests
+ * are retried with exponential backoff on rate-limit and server errors.
+ */
 export class SpotifyClient {
+  /**
+   * @param {string} clientId - The Spotify application client ID.
+   * @param {string} clientSecret - The Spotify application client secret.
+   * @param {string} refreshToken - The OAuth refresh token used to obtain access tokens.
+   */
   constructor(
     private readonly clientId: string,
     private readonly clientSecret: string,
     private readonly refreshToken: string
   ) {}
 
+  /**
+   * Exchanges the configured refresh token for a short-lived access token,
+   * retrying with backoff on timeouts, rate limits, and server errors.
+   *
+   * @returns {Promise<string>} A valid Spotify access token.
+   * @throws {SpotifyApiError} If the token endpoint returns a non-retryable error or exhausts retries.
+   * @throws {Error} If the response omits an access token or a non-abort network error occurs.
+   */
   async refreshAccessToken(): Promise<string> {
     let attempt = 0;
 
@@ -132,6 +178,13 @@ export class SpotifyClient {
     }
   }
 
+  /**
+   * Fetches the profile of the user that owns the access token.
+   *
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<SpotifyUser>} The current user's profile.
+   * @throws {SpotifyApiError} If the request fails.
+   */
   async getCurrentUser(accessToken: string): Promise<SpotifyUser> {
     return this.request<SpotifyUser>(`${SPOTIFY_API_BASE}/me`, {
       method: "GET",
@@ -139,6 +192,14 @@ export class SpotifyClient {
     });
   }
 
+  /**
+   * Checks whether a playlist exists and is accessible to the current user.
+   *
+   * @param {string} playlistId - The Spotify playlist ID to look up.
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<{ id: string } | null>} The playlist's id, or null if it is missing or inaccessible (403/404).
+   * @throws {SpotifyApiError} If the request fails with a status other than 403 or 404.
+   */
   async getPlaylist(playlistId: string, accessToken: string): Promise<{ id: string } | null> {
     logger.info(`Checking playlist existence for playlistId=${playlistId}.`);
 
@@ -156,6 +217,14 @@ export class SpotifyClient {
     }
   }
 
+  /**
+   * Creates a new public playlist for the current user.
+   *
+   * @param {string} name - The display name for the new playlist.
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<{ id: string; externalUrl: string | null }>} The new playlist's id and public URL (null if absent).
+   * @throws {SpotifyApiError} If the request fails.
+   */
   async createPublicPlaylist(
     name: string,
     accessToken: string
@@ -181,6 +250,13 @@ export class SpotifyClient {
     };
   }
 
+  /**
+   * Fetches every page of the current user's liked (saved) tracks.
+   *
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<SavedTrackItem[]>} All saved track items in their original order.
+   * @throws {SpotifyApiError} If any page request fails.
+   */
   async fetchAllLikedTracks(accessToken: string): Promise<SavedTrackItem[]> {
     const results: SavedTrackItem[] = [];
     let offset = 0;
@@ -214,6 +290,17 @@ export class SpotifyClient {
     return results;
   }
 
+  /**
+   * Replaces all items in a playlist with the given URIs (passing an empty
+   * array clears the playlist). A 403 returned while clearing an already-empty
+   * playlist is treated as success.
+   *
+   * @param {string} playlistId - The target playlist ID.
+   * @param {string[]} uris - The track URIs to set as the playlist's contents.
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<void>} Resolves once the playlist items have been replaced.
+   * @throws {SpotifyApiError} If the request fails (other than the ignored empty-clear 403 case).
+   */
   async replacePlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
     try {
       await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
@@ -231,6 +318,15 @@ export class SpotifyClient {
     }
   }
 
+  /**
+   * Appends the given track URIs to the end of a playlist.
+   *
+   * @param {string} playlistId - The target playlist ID.
+   * @param {string[]} uris - The track URIs to append.
+   * @param {string} accessToken - A valid Spotify access token.
+   * @returns {Promise<void>} Resolves once the items have been added.
+   * @throws {SpotifyApiError} If the request fails.
+   */
   async addPlaylistItems(playlistId: string, uris: string[], accessToken: string): Promise<void> {
     await this.request<void>(`${SPOTIFY_API_BASE}/playlists/${playlistId}/items`, {
       method: "POST",
@@ -239,6 +335,18 @@ export class SpotifyClient {
     });
   }
 
+  /**
+   * Performs an authenticated JSON request against the Spotify API, retrying
+   * with exponential backoff on timeouts, rate limits (429), and server errors
+   * (5xx). Parses the JSON response body, or returns undefined for empty bodies.
+   *
+   * @template T The expected shape of the parsed response body.
+   * @param {string} url - The fully-qualified request URL.
+   * @param {RequestOptions} options - Request method, optional JSON body, and optional access token.
+   * @returns {Promise<T>} The parsed response body (undefined when the body is empty).
+   * @throws {SpotifyApiError} If the response is a non-retryable error or retries are exhausted.
+   * @throws {Error} If a non-abort network error occurs.
+   */
   private async request<T>(url: string, options: RequestOptions): Promise<T> {
     let attempt = 0;
 
