@@ -16,10 +16,13 @@ function parseRetryAfterMs(headerValue: string | null): number | null {
   }
 
   const seconds = Number(headerValue);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
     return null;
   }
 
+  // A "Retry-After: 0" means retry immediately; preserve 0 so it is honored
+  // (the caller uses `?? backoff`, which keeps a 0 value) rather than falling
+  // back to exponential backoff.
   return seconds * 1000;
 }
 
@@ -53,6 +56,25 @@ export class SpotifyApiError extends Error {
     super(message);
     this.name = "SpotifyApiError";
     this.status = status;
+  }
+}
+
+/**
+ * Parses a JSON response body, throwing a descriptive error when the body is
+ * not valid JSON (e.g. a proxy error page or a truncated response served with
+ * a 2xx status) instead of leaking an opaque `SyntaxError`.
+ *
+ * @param bodyText - The raw response body text.
+ * @param context - Short description of the request, used in the error message.
+ * @returns The parsed value, typed as `T`.
+ * @throws {Error} If `bodyText` is not valid JSON.
+ */
+function parseJsonResponse<T>(bodyText: string, context: string): T {
+  try {
+    return JSON.parse(bodyText) as T;
+  } catch {
+    const preview = bodyText.length > 200 ? `${bodyText.slice(0, 200)}...` : bodyText;
+    throw new Error(`Failed to parse Spotify ${context} response as JSON: ${preview}`);
   }
 }
 
@@ -111,7 +133,7 @@ export class SpotifyClient {
       const bodyText = await response.text();
 
       if (response.ok) {
-        const parsed = JSON.parse(bodyText) as { access_token?: string };
+        const parsed = parseJsonResponse<{ access_token?: string }>(bodyText, "token");
         if (!parsed.access_token) {
           throw new Error("Spotify token response did not include access_token");
         }
@@ -290,7 +312,7 @@ export class SpotifyClient {
           return undefined as T;
         }
 
-        return JSON.parse(bodyText) as T;
+        return parseJsonResponse<T>(bodyText, "API");
       }
 
       const shouldRetry = response.status === 429 || response.status >= 500;
