@@ -110,19 +110,26 @@ export async function syncLikedSongsMirror(
     `Stage: selected candidates likedCount=${candidate.likedCount} candidateCount=${candidate.uris.length} skippedCount=${candidate.skippedCount}`
   );
 
-  logger.info("Stage: clearing mirror playlist.");
-  await spotifyClient.replacePlaylistItems(playlistId, [], accessToken);
-
-  logger.info("Stage: appending tracks to mirror playlist.");
+  // Replace the playlist contents atomically: a single PUT swaps the whole
+  // playlist to the first batch in one operation (so the playlist is never
+  // observed empty while there are tracks to mirror), then any remaining
+  // batches are appended. Clearing first would leave the public playlist
+  // empty or partially populated if a later write failed.
   const uriChunks = chunk(candidate.uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE);
-  logger.info(`Stage: writing ${uriChunks.length} chunks.`);
-  for (const [chunkIndex, uriChunk] of uriChunks.entries()) {
-    logger.info(`Stage: writing chunk ${chunkIndex + 1}/${uriChunks.length} size=${uriChunk.length}.`);
+
+  logger.info("Stage: replacing mirror playlist contents.");
+  // PUT with the first batch atomically replaces all existing items. For an
+  // empty library, uriChunks is empty and we PUT [] to clear the playlist.
+  const [firstChunk, ...restChunks] = uriChunks;
+  await spotifyClient.replacePlaylistItems(playlistId, firstChunk ?? [], accessToken);
+
+  logger.info(`Stage: appending ${restChunks.length} additional chunk(s).`);
+  for (const [chunkIndex, uriChunk] of restChunks.entries()) {
+    logger.info(`Stage: writing chunk ${chunkIndex + 2}/${uriChunks.length} size=${uriChunk.length}.`);
     await spotifyClient.addPlaylistItems(playlistId, uriChunk, accessToken);
   }
-  const writeResult = { mirroredCount: candidate.uris.length, writeSkippedCount: 0 };
 
-  const skippedCount = candidate.skippedCount + writeResult.writeSkippedCount;
+  const skippedCount = candidate.skippedCount;
 
   return {
     summary: {
@@ -130,7 +137,7 @@ export async function syncLikedSongsMirror(
       createdPlaylist,
       likedCount: candidate.likedCount,
       candidateCount: candidate.uris.length,
-      mirroredCount: writeResult.mirroredCount,
+      mirroredCount: candidate.uris.length,
       skippedCount
     },
     nextState: {
