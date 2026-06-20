@@ -1,6 +1,6 @@
 import type { AppConfig } from "./config";
 import { logger } from "./logger";
-import { SpotifyApiError, SpotifyClient } from "./spotify-client";
+import { SpotifyClient } from "./spotify-client";
 import type { AppState, SavedTrackItem, SpotifyTrack, SyncSummary } from "./types";
 
 const SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE = 100;
@@ -58,75 +58,6 @@ function chunk<T>(items: T[], size: number): T[][] {
   }
 
   return result;
-}
-
-function shouldFallbackToSingleWrites(error: unknown): boolean {
-  return error instanceof SpotifyApiError && error.status === 400;
-}
-
-function isPerTrackAvailabilityError(error: unknown): boolean {
-  if (!(error instanceof SpotifyApiError) || error.status !== 400) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-
-  return (
-    message.includes("not available") ||
-    message.includes("unavailable") ||
-    message.includes("not found") ||
-    message.includes("invalid track uri") ||
-    message.includes("invalid base62")
-  );
-}
-
-async function appendWithFallback(
-  spotifyClient: SpotifyClient,
-  playlistId: string,
-  accessToken: string,
-  uris: string[]
-): Promise<{ mirroredCount: number; writeSkippedCount: number }> {
-  let mirroredCount = 0;
-  let writeSkippedCount = 0;
-  const chunks = chunk(uris, SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE);
-
-  logger.info(`Writing playlist in ${chunks.length} chunks of up to ${SPOTIFY_PLAYLIST_WRITE_BATCH_SIZE}.`);
-
-  for (const [chunkIndex, uriChunk] of chunks.entries()) {
-    logger.info(
-      `Writing chunk ${chunkIndex + 1}/${chunks.length} size=${uriChunk.length} mirroredSoFar=${mirroredCount}`
-    );
-
-    try {
-      await spotifyClient.addPlaylistItems(playlistId, uriChunk, accessToken);
-      mirroredCount += uriChunk.length;
-      continue;
-    } catch (error) {
-      if (!shouldFallbackToSingleWrites(error)) {
-        throw error;
-      }
-
-      logger.warn(
-        `Chunk add failed for ${uriChunk.length} tracks with status 400. Falling back to single-track writes.`
-      );
-    }
-
-    for (const uri of uriChunk) {
-      try {
-        await spotifyClient.addPlaylistItems(playlistId, [uri], accessToken);
-        mirroredCount += 1;
-      } catch (error) {
-        if (!isPerTrackAvailabilityError(error)) {
-          throw error;
-        }
-
-        writeSkippedCount += 1;
-        logger.warn(`Skipping unavailable track URI: ${uri}`);
-      }
-    }
-  }
-
-  return { mirroredCount, writeSkippedCount };
 }
 
 export async function syncLikedSongsMirror(
