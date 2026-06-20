@@ -241,14 +241,16 @@ export class SpotifyClient {
 
   private async request<T>(url: string, options: RequestOptions): Promise<T> {
     let attempt = 0;
+    let accessToken = options.accessToken;
+    let refreshedOnce = false;
 
     while (true) {
       const headers: Record<string, string> = {
         Accept: "application/json"
       };
 
-      if (options.accessToken) {
-        headers.Authorization = `Bearer ${options.accessToken}`;
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
       }
 
       if (options.body !== undefined) {
@@ -291,6 +293,16 @@ export class SpotifyClient {
         }
 
         return JSON.parse(bodyText) as T;
+      }
+
+      // The access token lasts ~1 hour, so a long-running sync can outlive it
+      // and start receiving 401s mid-run. Refresh once and retry the request
+      // with a fresh token before treating the 401 as fatal.
+      if (response.status === 401 && accessToken && !refreshedOnce) {
+        refreshedOnce = true;
+        logger.warn("Spotify request returned 401. Refreshing access token and retrying.");
+        accessToken = await this.refreshAccessToken();
+        continue;
       }
 
       const shouldRetry = response.status === 429 || response.status >= 500;
