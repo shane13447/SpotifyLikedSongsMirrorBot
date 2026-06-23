@@ -264,8 +264,13 @@ export class SpotifyClient {
     let total = Number.POSITIVE_INFINITY;
 
     while (results.length < total) {
+      // Pass market=from_token so Spotify resolves track relinking and
+      // populates `is_playable` for the authenticated user's market. Without a
+      // market the field is omitted, leaving the downstream is_playable===false
+      // skip filter (sync-service) inert and unavailable tracks silently
+      // mirrored.
       const page = await this.request<PagingResponse<SavedTrackItem>>(
-        `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=${offset}`,
+        `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=${offset}&market=from_token`,
         {
           method: "GET",
           accessToken
