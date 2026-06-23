@@ -259,33 +259,32 @@ export class SpotifyClient {
    */
   async fetchAllLikedTracks(accessToken: string): Promise<SavedTrackItem[]> {
     const results: SavedTrackItem[] = [];
-    let offset = 0;
     const limit = 50;
-    let total = Number.POSITIVE_INFINITY;
 
-    while (results.length < total) {
-      const page = await this.request<PagingResponse<SavedTrackItem>>(
-        `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=${offset}`,
-        {
-          method: "GET",
-          accessToken
-        }
-      );
+    // Drive pagination off the API's `next` cursor rather than a snapshot
+    // `total`. The saved-tracks library can change between page requests; if
+    // the loop is bounded by `total` with manual offset math, a shrinking
+    // library (total drops mid-read) can cause tracks to be skipped or the
+    // result set to be silently truncated, and a growing one can duplicate
+    // or miss items. Following `next` until it is null is the authoritative,
+    // race-free way to walk every page Spotify hands back.
+    let nextUrl: string | null = `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=0`;
 
-      total = page.total;
-      logger.info(
-        `Fetched liked tracks page offset=${page.offset} items=${page.items.length} collected=${results.length}/${total}`
-      );
-
-      if (page.items.length === 0) {
-        break;
-      }
+    while (nextUrl) {
+      const page: PagingResponse<SavedTrackItem> = await this.request<PagingResponse<SavedTrackItem>>(nextUrl, {
+        method: "GET",
+        accessToken
+      });
 
       results.push(...page.items);
-      offset += page.items.length;
+      logger.info(
+        `Fetched liked tracks page offset=${page.offset} items=${page.items.length} collected=${results.length}`
+      );
+
+      nextUrl = page.next;
     }
 
-    logger.info(`Completed liked tracks fetch. collected=${results.length} total=${total}`);
+    logger.info(`Completed liked tracks fetch. collected=${results.length}`);
 
     return results;
   }
