@@ -290,7 +290,14 @@ export class SpotifyClient {
     // result set to be silently truncated, and a growing one can duplicate
     // or miss items. Following `next` until it is null is the authoritative,
     // race-free way to walk every page Spotify hands back.
-    let nextUrl: string | null = `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=0`;
+    //
+    // Pass market=from_token so Spotify resolves track relinking and
+    // populates `is_playable` for the authenticated user's market. Without a
+    // market the field is omitted, leaving the downstream is_playable===false
+    // skip filter (sync-service) inert and unavailable tracks silently
+    // mirrored. Spotify preserves query params (including market) across the
+    // `next` URLs it hands back, so this only needs to be set once here.
+    let nextUrl: string | null = `${SPOTIFY_API_BASE}/me/tracks?limit=${limit}&offset=0&market=from_token`;
 
     while (nextUrl) {
       const page: PagingResponse<SavedTrackItem> = await this.request<PagingResponse<SavedTrackItem>>(nextUrl, {
