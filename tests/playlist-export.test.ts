@@ -15,6 +15,7 @@ describe("buildMirrorPlaylistExport", () => {
           duration_ms: 180000,
           explicit: false,
           is_local: false,
+          external_ids: { isrc: "GBTEST123456" },
           external_urls: { spotify: "https://open.spotify.com/track/track-1" },
           artists: [
             {
@@ -54,7 +55,7 @@ describe("buildMirrorPlaylistExport", () => {
       exportedAt: "2026-07-24T12:00:00.000Z"
     });
 
-    expect(result.schemaVersion).toBe(1);
+    expect(result.schemaVersion).toBe(2);
     expect(result.source).toEqual({
       playlistId: "playlist-1",
       spotifyUrl: "https://open.spotify.com/playlist/playlist-1"
@@ -64,6 +65,7 @@ describe("buildMirrorPlaylistExport", () => {
       playlistPosition: 0,
       id: "track-1",
       name: "Synthetic Track",
+      isrc: "GBTEST123456",
       spotifyUrl: "https://open.spotify.com/track/track-1",
       artists: [
         {

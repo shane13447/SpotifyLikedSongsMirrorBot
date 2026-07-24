@@ -82,6 +82,9 @@ export interface SpotifyPlaylistTrack {
   duration_ms: number;
   explicit: boolean;
   is_local?: boolean;
+  external_ids?: {
+    isrc?: string;
+  };
   external_urls?: SpotifyExternalUrls;
   artists: SpotifyArtistReference[];
   album: SpotifyAlbumReference;

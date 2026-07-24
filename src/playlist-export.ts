@@ -21,6 +21,7 @@ export interface MirrorPlaylistExportTrack {
   id: string;
   uri: string;
   name: string;
+  isrc: string | null;
   durationMs: number;
   explicit: boolean;
   spotifyUrl: string | null;
@@ -29,7 +30,7 @@ export interface MirrorPlaylistExportTrack {
 }
 
 export interface MirrorPlaylistExport {
-  schemaVersion: 1;
+  schemaVersion: 2;
   exportedAt: string;
   source: {
     playlistId: string;
@@ -89,7 +90,7 @@ export function buildMirrorPlaylistExport(
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: options.exportedAt,
     source: {
       playlistId: options.playlistId,
@@ -123,6 +124,7 @@ function mapTrack(
     id: track.id!,
     uri: track.uri,
     name: track.name,
+    isrc: track.external_ids?.isrc ?? null,
     durationMs: track.duration_ms,
     explicit: track.explicit,
     spotifyUrl: track.external_urls?.spotify ?? null,
