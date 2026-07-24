@@ -44,6 +44,68 @@ export interface SavedTrackItem {
 }
 
 /**
+ * Public Spotify link attached to exported catalogue entities.
+ */
+export interface SpotifyExternalUrls {
+  spotify?: string;
+}
+
+/**
+ * Artist reference embedded in a Spotify playlist track.
+ */
+export interface SpotifyArtistReference {
+  id: string;
+  uri: string;
+  name: string;
+  external_urls?: SpotifyExternalUrls;
+}
+
+/**
+ * Album reference embedded in a Spotify playlist track.
+ */
+export interface SpotifyAlbumReference {
+  id: string | null;
+  uri: string;
+  name: string;
+  release_date?: string | null;
+  external_urls?: SpotifyExternalUrls;
+}
+
+/**
+ * Track object returned by Spotify's 2026 playlist-items response.
+ */
+export interface SpotifyPlaylistTrack {
+  type: "track";
+  id: string | null;
+  uri: string;
+  name: string;
+  duration_ms: number;
+  explicit: boolean;
+  is_local?: boolean;
+  external_urls?: SpotifyExternalUrls;
+  artists: SpotifyArtistReference[];
+  album: SpotifyAlbumReference;
+}
+
+/**
+ * Minimal episode shape used to identify and exclude non-track playlist items.
+ */
+export interface SpotifyPlaylistEpisode {
+  type: "episode";
+  id: string | null;
+  uri: string;
+  name: string;
+}
+
+/**
+ * A playlist entry from Spotify's 2026 `/playlists/{id}/items` endpoint.
+ */
+export interface PlaylistItem {
+  added_at: string | null;
+  item: SpotifyPlaylistTrack | SpotifyPlaylistEpisode | null;
+}
+
+/**
  * Generic shape of a Spotify paginated list response.
  *
  * @typeParam T - The type of each item in the page.

@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import type { PagingResponse, SavedTrackItem, SpotifyUser } from "./types";
+import type { PagingResponse, PlaylistItem, SavedTrackItem, SpotifyUser } from "./types";
 
 const SPOTIFY_API_BASE = "https://api.spotify.com/v1";
 const SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com/api";
@@ -315,6 +315,39 @@ export class SpotifyClient {
 
     logger.info(`Completed liked tracks fetch. collected=${results.length}`);
 
+    return results;
+  }
+
+  /**
+   * Fetches every page of an owned or collaborative playlist using Spotify's
+   * 2026 playlist-items endpoint and response shape.
+   *
+   * @param {string} playlistId - Spotify ID of the playlist to read.
+   * @param {string} accessToken - A valid user access token for the playlist owner or collaborator.
+   * @returns {Promise<PlaylistItem[]>} All playlist items in their source order.
+   * @throws {SpotifyApiError} If the playlist is inaccessible or a request fails.
+   */
+  async fetchAllPlaylistItems(playlistId: string, accessToken: string): Promise<PlaylistItem[]> {
+    const results: PlaylistItem[] = [];
+    const encodedPlaylistId = encodeURIComponent(playlistId);
+    let nextUrl: string | null =
+      `${SPOTIFY_API_BASE}/playlists/${encodedPlaylistId}/items` +
+      "?limit=50&offset=0&market=from_token";
+
+    while (nextUrl) {
+      const page: PagingResponse<PlaylistItem> = await this.request<PagingResponse<PlaylistItem>>(nextUrl, {
+        method: "GET",
+        accessToken
+      });
+
+      results.push(...page.items);
+      logger.info(
+        `Fetched mirror playlist page offset=${page.offset} items=${page.items.length} collected=${results.length}`
+      );
+      nextUrl = page.next;
+    }
+
+    logger.info(`Completed mirror playlist fetch. collected=${results.length}`);
     return results;
   }
 

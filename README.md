@@ -153,10 +153,25 @@ No manual intervention is needed after initial setup. Like a new song, and it ap
 | Command              | Description                                     |
 |----------------------|-------------------------------------------------|
 | `npm run sync`       | Run the sync job locally                        |
+| `npm run export:mirror -- --output export/mirror-playlist.json` | Export the owned mirror's metadata without modifying Spotify |
 | `npm run auth`       | One-time OAuth helper to generate refresh token |
 | `npm run typecheck`  | TypeScript type checking                        |
 | `npm test`           | Run test suite                                  |
 | `npm run build`      | Compile TypeScript                              |
+
+## Read-only genre-project export
+
+The separate genre-playlist repository consumes a versioned metadata export
+instead of importing this repository's implementation or credentials. Run the
+`Export Spotify Mirror Metadata` workflow manually to create a temporary
+one-day GitHub Actions artifact. The workflow has read-only repository
+permissions and calls no Spotify playlist-write endpoint.
+
+The export includes Spotify attribution links and is ignored by Git. Do not
+commit it, copy credentials with it, or print its track data to logs. Spotify's
+current developer policy also prohibits sending Spotify Content into an AI
+model, so the downstream project must use deterministic rules and direct user
+review rather than LLM classification of exported tracks.
 
 ## Troubleshooting (every -inator needs maintenance)
 

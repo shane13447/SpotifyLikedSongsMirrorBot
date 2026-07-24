@@ -10,6 +10,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "sync": "tsx src/index.ts",
+    "export:mirror": "tsx scripts/export-mirror-playlist.ts",
     "auth": "tsx scripts/generate-refresh-token.ts",
     "test": "vitest run"
   },

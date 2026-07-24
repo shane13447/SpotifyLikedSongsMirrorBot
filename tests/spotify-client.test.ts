@@ -344,3 +344,96 @@ describe("SpotifyClient response parsing", () => {
     }
   });
 });
+
+describe("SpotifyClient playlist export pagination", () => {
+  it("fetches the owner mirror through the 2026 playlist items endpoint", async () => {
+    const originalFetch = globalThis.fetch;
+
+    try {
+      const requestedUrls: string[] = [];
+      const responses = [
+        {
+          items: [
+            {
+              added_at: "2026-07-24T10:00:00.000Z",
+              item: {
+                type: "track",
+                id: "track-1",
+                uri: "spotify:track:track-1",
+                name: "Synthetic Track One",
+                duration_ms: 180000,
+                explicit: false,
+                is_local: false,
+                external_urls: { spotify: "https://open.spotify.com/track/track-1" },
+                artists: [],
+                album: {
+                  id: "album-1",
+                  uri: "spotify:album:album-1",
+                  name: "Synthetic Album",
+                  release_date: "2026",
+                  external_urls: { spotify: "https://open.spotify.com/album/album-1" }
+                }
+              }
+            }
+          ],
+          limit: 1,
+          offset: 0,
+          total: 2,
+          next: "https://api.spotify.com/v1/playlists/playlist-1/items?limit=1&offset=1"
+        },
+        {
+          items: [
+            {
+              added_at: "2026-07-24T09:00:00.000Z",
+              item: {
+                type: "track",
+                id: "track-2",
+                uri: "spotify:track:track-2",
+                name: "Synthetic Track Two",
+                duration_ms: 200000,
+                explicit: true,
+                is_local: false,
+                external_urls: { spotify: "https://open.spotify.com/track/track-2" },
+                artists: [],
+                album: {
+                  id: "album-2",
+                  uri: "spotify:album:album-2",
+                  name: "Synthetic Album Two",
+                  release_date: "2025",
+                  external_urls: { spotify: "https://open.spotify.com/album/album-2" }
+                }
+              }
+            }
+          ],
+          limit: 1,
+          offset: 1,
+          total: 2,
+          next: null
+        }
+      ];
+
+      let callCount = 0;
+      globalThis.fetch = (async (url: string) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          text: async () => JSON.stringify(responses[callCount++])
+        } as Response;
+      }) as typeof fetch;
+
+      const client = new SpotifyClient("id", "secret", "refresh");
+      const result = await client.fetchAllPlaylistItems("playlist-1", "token");
+
+      expect(result).toHaveLength(2);
+      expect(result.map((entry) => entry.item?.id)).toEqual(["track-1", "track-2"]);
+      expect(new URL(requestedUrls[0]).pathname).toBe("/v1/playlists/playlist-1/items");
+      expect(requestedUrls[1]).toBe(
+        "https://api.spotify.com/v1/playlists/playlist-1/items?limit=1&offset=1"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
